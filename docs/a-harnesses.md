@@ -140,9 +140,14 @@ MCP server 暴露：
 | 工具 | 作用 |
 |---|---|
 | `delegate_task` | 下发任务，立即返回 taskId |
+| `dispatch_task` | 下发并等待到终态或 waiting（短任务） |
+| `task_wait` | 等到 completed/failed/waiting/interrupted；waiting 时返回 question |
 | `task_status` | 查状态/摘要/错误 |
-| `list_inbox` | 列出待人工处理的问题 |
-| `answer_question` | 批准/拒绝/回答 |
+| `task_result` | 取最终 summary/usage/error/workdir |
+| `task_resume` | 恢复 interrupted 任务 |
+| `pending_approvals` / `list_inbox` | 列出待人工处理的问题 |
+| `task_approve` / `answer_question` | 批准/拒绝/回答 |
+| `task_respond` | 回答 clarification |
 | `steer_task` | 给运行中的任务插话 |
 | `cancel_task` | 取消 |
 
@@ -152,14 +157,14 @@ MCP server 暴露：
 
 - 当前会话目标已固定，不要指定机器或 harness；
 - 缺 repo/branch/验收标准先问人；
-- `delegate_task` 立即返回，不要等待或轮询；
+- `delegate_task` 立即返回 taskId；随后用 `task_wait` 等待，不要轮询 `task_status`；
 - 换目标要新开会话；
 - 高风险任务加 gate；
-- 进度和审批在 `agent-bridge tui`。
+- `waiting` 时在对话里问人，再 `task_approve`/`task_respond`。
 
 ## 边界
 
 - A 侧 harness 只负责“理解 + 调用工具”，不参与 B 的执行。
-- B 完成后不会自动把结果推回 A 的对话；A 需要调 `task_status`，或人把摘要贴回去。
-- 审批在独立 TUI，不在 A 的聊天窗口内。
+- B 完成后不会自动把结果推回 A 的对话；A 通过 `task_wait`/`task_result` 取结果并转述给用户。
+- 审批在 A 的对话里完成，通过 `task_wait` + `task_approve`/`task_respond`。
 - 一个会话一个目标；多 B / 多 harness 就多会话。

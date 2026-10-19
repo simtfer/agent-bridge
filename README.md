@@ -1,8 +1,8 @@
 # agent-bridge
 
-在 A 机用自然语言下发任务，交给 B 机上的 coding agent 执行；会话绑定一个目标（机器 + harness），长任务在关键节点停下来等人批准。
+在 A 机跟 A agent 对话，由 A 作为调度者把任务下发给 B 机上的 coding agent；会话绑定一个目标（机器 + harness），审批和追问都在 A 的对话里完成。
 
-- **A 机**：`gateway`（任务/会话/收件箱 + JSON 状态文件）+ `tui`（终端收件箱）+ 任意 harness（opencode / pi / …）
+- **A 机**：`gateway`（任务/会话/收件箱 + JSON 状态文件）+ 任意 harness（Claude Code / OpenCode / pi / Hermes）；**A 是唯一入口**
 - **B 机**：`runner`（常驻服务）+ adapter（`opencode` / `opencode serve` / `pi` / `echo`）+ 每任务独立 worktree
 - **协议**：局域网 HTTP/HTTPS + SSE，token 鉴权；任务状态机 + gate 协议
 - **可靠性**：Job Object 进程治理、并发队列、runner 崩溃后任务转 `interrupted` 并可恢复
@@ -13,12 +13,11 @@
 ```
 A（Windows）                                    B（Windows，无 WSL/容器）
 ┌──────────────────────────────┐               ┌────────────────────────────────┐
-│ opencode/pi 会话              │               │ agent-runner（服务，账户 agent）│
+│ A harness（唯一入口）          │               │ agent-runner（服务，账户 agent）│
 │   │ MCP tools / CLI            │  HTTP+SSE     │   ├─ adapter: opencode         │
 │   ▼                          │◄─────────────►│   ├─ adapter: pi               │
 │ agent-bridge gateway         │  局域网 token  │   ├─ 进程树 / worktree 管理     │
 │  sessions / tasks / inbox    │               │   └─ D:\agent-work\run_*        │
-│  TUI（人工审批/插话）          │               │                                │
 └──────────────────────────────┘               └────────────────────────────────┘
 ```
 
@@ -26,9 +25,9 @@ A（Windows）                                    B（Windows，无 WSL/容器�
 
 1. **会话绑定目标**：`session -> {runner, harness, model}`。任务继承 session 的 target，不能逐任务改。换 harness = 新开会话，避免错派。
 2. **长任务不占进程**：agent 到达 gate 后输出一行 `<<<GATE {...}>>>` 并停止。`opencode run` 模式杀进程后用 `--session <id>` 恢复；`opencode serve` 模式保留服务端 session，直接发下一条消息。
-3. **人工入口是 TUI**：任务列表 + 实时事件 + 审批卡片 + 插话输入行。人不在时问题留在 gateway，重开 TUI 自动补齐。
+3. **A 是唯一人工入口**：A 用 `task_wait` 等到 `waiting`，在对话里向你复述问题并等确认，再调 `task_approve` / `task_respond`；不需要另开界面。
 4. **结果以仓库为主**：worktree 是 `task/<runId>` 分支；stdout 只回摘要。
-5. **runner 崩溃可恢复**：每个 run 落盘 `run.json` + `events.jsonl`，重启后 `running/queued` 转 `interrupted`，TUI 按 `R` 或 `agent-bridge resume` 继续。
+5. **runner 崩溃可恢复**：每个 run 落盘 `run.json` + `events.jsonl`，重启后 `running/queued` 转 `interrupted`；A 调 `task_resume`（或 CLI `resume`）继续。
 
 ## 快速开始（本机 loopback，5 分钟）
 
@@ -46,25 +45,24 @@ node bin/agent-bridge.mjs runner  --config config/runner.local.json
 node bin/agent-bridge.mjs gateway --config config/gateway.local.json
 ```
 
-另开一个终端：
+另开一个终端，用 CLI 验证链路（真实使用时这些动作由 A 的 MCP 工具完成）：
 
 ```powershell
 cd D:\projects\a\agent-bridge
 $sid = node bin/agent-bridge.mjs session new --config config/client.json --to local/echo
-node bin/agent-bridge.mjs submit --config config/client.json --session $sid "say hi"
-node bin/agent-bridge.mjs tui --config config/client.json
+$tid = node bin/agent-bridge.mjs submit --config config/client.json --session $sid "say hi"
+node bin/agent-bridge.mjs status --config config/client.json $tid
 ```
 
-TUI 键位：
+A 侧的典型工具循环：
 
-| 键 | 动作 |
-|---|---|
-| `j` / `k` | 选择任务 |
-| `Tab` | 跳到下一个待答任务 |
-| `a` / `d` | 批准 / 拒绝 |
-| `s` | 插话（steer） |
-| `r` / `Enter` | 回答 clarification |
-| `q` | 退出（任务继续跑） |
+```text
+delegate_task(goal, repo, base_ref, acceptance, gates)
+  → task_wait(task_id, 25)
+      → waiting:  在对话里问用户 → task_approve/task_respond → task_wait 继续
+      → completed: task_result → 汇报 summary/改动/测试
+      → failed/canceled/interrupted: 如实报告；interrupted 用 task_resume
+```
 
 ## 接真实 harness
 
@@ -138,7 +136,7 @@ runner 会启动一个常驻 `opencode serve`，每个任务通过 `/session` �
 
 ## TLS（自签 CA）
 
-默认走 HTTP；跨机器部署建议开 TLS。gateway 和 runner 都支持，也可以只给 A↔B 开、本地 gateway↔TUI 保持 HTTP。
+默认走 HTTP；跨机器部署建议开 TLS。gateway 和 runner 都支持，也可以只给 A↔B 开、本地 gateway↔客户端保持 HTTP。
 
 1. 在 B（或任意一台可信机器）生成 CA 和两张服务端证书：
 
@@ -183,7 +181,7 @@ pwsh -NoProfile -File scripts\make-certs.ps1 `
 "tls": { "cert": "certs/gateway.crt", "key": "certs/gateway.key" }
 ```
 
-客户端（CLI/MCP/TUI）配置：
+客户端（CLI/MCP）配置：
 
 ```json
 "gateway": {
@@ -283,7 +281,7 @@ node bin/agent-bridge.mjs gateway --config config/gateway.json
 
 `runners` 是机器注册表，key 就是会话里的 `--to b1/opencode` 的 `b1`。加一台 B 只需要加一条，不需要改代码。
 
-`gateway` 默认只监听 `127.0.0.1`，TUI/MCP 都在本机；不需要对局域网暴露。若要从另一台机器 attach TUI，再改成 `0.0.0.0` 并配 token。
+`gateway` 默认只监听 `127.0.0.1`，MCP/CLI 都在本机；不需要对局域网暴露。若要从另一台机器连 MCP/CLI，再改成 `0.0.0.0` 并配 token。
 
 ### 多台机器 / 多个 harness
 
@@ -298,7 +296,7 @@ node bin/agent-bridge.mjs session new --to b1/pi
 node bin/agent-bridge.mjs session new --to b2/opencode
 ```
 
-每个会话在 A 侧对应一个父 harness 会话（或一个 MCP server 进程）。人类在哪个会话里说话，任务就落到哪个 `runner/harness`，不存在“模型猜错目标”的问题。要换目标就新开会话，TUI 顶部的 target 是只读的。
+每个会话在 A 侧对应一个父 harness 会话（或一个 MCP server 进程）。人类在哪个会话里说话，任务就落到哪个 `runner/harness`，不存在“模型猜错目标”的问题。要换目标就新开会话，会话的 target 在创建时固定。
 
 `runners` 里没有的 key 会被 gateway 拒绝：
 
@@ -356,9 +354,14 @@ opencode 配置示例：
 | 工具 | 作用 |
 |---|---|
 | `delegate_task` | 下发任务，立即返回 taskId |
+| `dispatch_task` | 下发并等待到终态或 waiting（短任务） |
+| `task_wait` | 等到 completed/failed/waiting/interrupted；waiting 时返回 question |
 | `task_status` | 查询状态/摘要/错误 |
-| `list_inbox` | 列出待人工处理的问题 |
-| `answer_question` | 批准/拒绝/回答 |
+| `task_result` | 取最终 summary/usage/error/workdir |
+| `task_resume` | 恢复 interrupted 任务 |
+| `pending_approvals` / `list_inbox` | 列出待人工处理的问题 |
+| `task_approve` / `answer_question` | 批准/拒绝/回答 |
+| `task_respond` | 回答 clarification |
 | `steer_task` | 给运行中的任务插话 |
 | `cancel_task` | 取消 |
 
@@ -379,16 +382,17 @@ agent-bridge status t_xxx
 
 - 当前会话的 target 已固定，调用工具时**不要**指定机器/harness。
 - 仓库、分支、验收标准不明确时先问人，不要猜。
-- `delegate_task` 返回后立即告诉用户 taskId，不要轮询等待。
+- `delegate_task` 拿到 taskId 后调用 `task_wait`；`waiting` 时在对话里问人，再 `task_approve`/`task_respond`。
+- 不要轮询 `task_status`；需要等待就用 `task_wait`，需要结果就用 `task_result`。
 - 用户要求换 harness 时，提示“新开一个会话”。
 
 ## 人工引导：三种交互
 
 | 类型 | 触发 | 行为 |
 |---|---|---|
-| approval | agent 要执行高风险动作 | 输出 `<<<GATE ...>>>` 并停止；TUI 批准/拒绝 |
-| clarification | agent 缺信息 | 同上，但回答是自由文本 |
-| steer | 人主动插话 | TUI `s`；运行中注入，不支持注入则排队到下一个 checkpoint |
+| approval | agent 要执行高风险动作 | 输出 `<<<GATE ...>>>` 并停止；A 用 `task_wait` 拿到问题，在对话里问你，再 `task_approve` |
+| clarification | agent 缺信息 | 同上，但用 `task_respond` 回答自由文本 |
+| steer | 人主动插话 | A 调 `steer_task`；运行中注入，不支持注入则排队到下一个 checkpoint |
 
 Gate 协议（写在发给 B 的 prompt 里）：
 
@@ -396,7 +400,7 @@ Gate 协议（写在发给 B 的 prompt 里）：
 <<<GATE {"kind":"approval","title":"Approve db:migrate?","detail":{"command":"npm run db:migrate","cwd":"..."}}>>>
 ```
 
-runner 检测到后：状态转 `waiting`，问题进 inbox，opencode 进程在 1.2s 后停止；人回答后 adapter 用 `--session <id>` 重新拉起并注入回答。
+runner 检测到后：状态转 `waiting`，问题进 inbox，opencode 进程在 1.2s 后停止；A 调 `task_approve` 后 adapter 用 `--session <id>` 重新拉起并注入回答。
 
 **注意**：这是“协作式 gate”，不是操作系统级沙箱。`opencode run` 在无 TTY 下可能自动允许 bash；真正的权限控制要靠：
 
@@ -421,11 +425,10 @@ runner 启动时扫描这些目录：
 恢复方式：
 
 ```powershell
-# TUI 里按 R
 agent-bridge resume <taskId> "继续，先检查 git status"
 ```
 
-对应接口 `POST /v1/tasks/{id}/resume`。恢复逻辑：
+A 也可以直接调 MCP 工具 `task_resume`。对应接口 `POST /v1/tasks/{id}/resume`。恢复逻辑：
 
 - `opencode run`：用持久化的 `sessionRef` 执行 `--session <id>`；
 - `opencode serve`：直接向原 session 发一条消息；
@@ -473,7 +476,7 @@ agent-bridge/
 │  ├─ runner.mjs                B 侧：队列、worktree、事件、恢复
 │  ├─ store.mjs                 JSON 状态存储
 │  ├─ mcp.mjs                   MCP stdio server
-│  ├─ tui.mjs                   终端收件箱
+│  ├─ cli.mjs                   session/submit/status/...
 │  ├─ cli.mjs                   session/submit/status/...
 │  ├─ jobrun.mjs                Job Object 包装
 │  ├─ http.mjs                  HTTP/HTTPS 客户端（支持 CA）

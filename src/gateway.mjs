@@ -240,7 +240,8 @@ export class Gateway {
     if (req.method === "GET" && taskMatch) {
       const task = this.store.getTask(taskMatch[1]);
       if (!task) return sendJson(res, 404, { error: "task not found" });
-      return sendJson(res, 200, task);
+      const question = task.questionId ? this.store.getQuestion(task.questionId) : null;
+      return sendJson(res, 200, { ...task, question });
     }
 
     const eventsMatch = pathname.match(/^\/v1\/tasks\/([^/]+)\/events$/);
@@ -314,7 +315,7 @@ export class Gateway {
             body: {
               kind: decision === "deny" ? "deny" : "answer",
               text,
-              actor: body.actor || "tui",
+              actor: body.actor || "a",
               questionId: question.id,
             },
             tls: runner.tls,
@@ -327,12 +328,12 @@ export class Gateway {
       this.store.answerQuestion(question.id, {
         decision,
         text,
-        actor: body.actor || "tui",
+        actor: body.actor || "a",
       });
       const event = this.store.addEvent(task.id, "answered", {
         questionId: question.id,
         decision,
-        actor: body.actor || "tui",
+        actor: body.actor || "a",
       });
       this.broadcast(event);
       return sendJson(res, 200, { ok: true });
@@ -361,7 +362,7 @@ export class Gateway {
         this.store.updateTask(task.id, { state: previousState });
         return sendJson(res, 502, { error: error.message });
       }
-      const event = this.store.addEvent(task.id, "resumed", { actor: body.actor || "tui" });
+      const event = this.store.addEvent(task.id, "resumed", { actor: body.actor || "a" });
       this.broadcast(event);
       return sendJson(res, 200, { ok: true });
     }
@@ -380,7 +381,7 @@ export class Gateway {
           {
             method: "POST",
             headers: runnerHeaders(runner),
-            body: { kind: "steer", text: body.text, actor: body.actor || "tui" },
+            body: { kind: "steer", text: body.text, actor: body.actor || "a" },
             tls: runner.tls,
           },
         );
@@ -389,7 +390,7 @@ export class Gateway {
       }
       const event = this.store.addEvent(task.id, "steer", {
         text: body.text,
-        actor: body.actor || "tui",
+        actor: body.actor || "a",
       });
       this.broadcast(event);
       return sendJson(res, 200, { ok: true });

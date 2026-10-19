@@ -125,20 +125,38 @@ try {
   assert.equal(delegated.target.harness, "pi");
   console.log("ok - delegate_task to b1/pi");
 
-  await waitFor(delegated.taskId, "waiting");
-  const inbox = await tool("list_inbox", {});
-  const question = inbox.find((item) => item.taskId === delegated.taskId);
-  assert.ok(question, "question should be in inbox");
-  console.log("ok - pi gate visible through MCP");
+  const waiting = await tool("task_wait", {
+    task_id: delegated.taskId,
+    timeout_sec: 5,
+  });
+  assert.equal(waiting.state, "waiting");
+  assert.ok(waiting.question, "task_wait should return the question");
+  console.log("ok - pi gate visible through task_wait");
 
-  await tool("answer_question", {
-    question_id: question.id,
+  const inbox = await tool("pending_approvals", {});
+  const question = inbox.find((item) => item.taskId === delegated.taskId);
+  assert.ok(question, "question should be in pending_approvals");
+
+  await tool("task_approve", {
+    task_id: delegated.taskId,
     decision: "approve",
     text: "approved",
   });
-  const completed = await waitFor(delegated.taskId, "completed");
+  const completed = await tool("task_wait", {
+    task_id: delegated.taskId,
+    timeout_sec: 10,
+  });
+  assert.equal(completed.state, "completed");
   assert.match(completed.summary, /mock-pi: approved/);
-  console.log("ok - pi resumed and completed; scenario passed");
+  console.log("ok - pi resumed and completed");
+
+  const quick = await tool("dispatch_task", {
+    goal: "quick dispatched task",
+    timeout_sec: 5,
+  });
+  assert.equal(quick.state, "completed");
+  assert.match(quick.summary, /mock-pi:/);
+  console.log("ok - dispatch_task sync convenience passed");
 } finally {
   child.kill();
   await gateway.close();

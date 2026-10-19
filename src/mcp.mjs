@@ -1,4 +1,4 @@
-import { loadConfig, parseArgs, log } from "./util.mjs";
+import { loadConfig, parseArgs, log, sleep } from "./util.mjs";
 import { requestJson } from "./http.mjs";
 
 /**
@@ -31,8 +31,9 @@ export async function runMcp(argv = []) {
       name: "delegate_task",
       description:
         "Delegate a coding task to the target machine/harness fixed for this session. " +
-        "Returns immediately with a task id. Do not wait or poll in a loop; the human " +
-        "monitors progress and answers gates in the terminal inbox.",
+        "Returns immediately with a taskId. You are the dispatcher: after it returns, " +
+        "call task_wait, and if the task is waiting, ask the user in this conversation " +
+        "and call answer_question. Do not tell the user to open a separate UI.",
       inputSchema: {
         type: "object",
         properties: {
@@ -50,6 +51,94 @@ export async function runMcp(argv = []) {
           },
         },
         required: ["goal"],
+      },
+    },
+    {
+      name: "dispatch_task",
+      description:
+        "Submit a task and wait up to timeout_sec for it to complete or need input. " +
+        "Convenience for short tasks; for long tasks prefer delegate_task + task_wait.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          goal: { type: "string" },
+          raw_request: { type: "string" },
+          repo: { type: "string" },
+          repo_path: { type: "string" },
+          base_ref: { type: "string" },
+          constraints: { type: "array", items: { type: "string" } },
+          acceptance: { type: "array", items: { type: "string" } },
+          gates: { type: "array", items: { type: "string" } },
+          timeout_sec: { type: "number", description: "Wait budget, default 25, max 55." },
+        },
+        required: ["goal"],
+      },
+    },
+    {
+      name: "task_wait",
+      description:
+        "Wait until the task completes, fails, is interrupted, or enters waiting for " +
+        "human input. Returns the task snapshot; if state is waiting, read task.question, " +
+        "ask the user in this conversation, then call answer_question.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          task_id: { type: "string" },
+          timeout_sec: { type: "number", description: "Wait budget, default 25, max 55." },
+        },
+        required: ["task_id"],
+      },
+    },
+    {
+      name: "task_result",
+      description: "Return the final summary, usage, error and workdir of a task.",
+      inputSchema: {
+        type: "object",
+        properties: { task_id: { type: "string" } },
+        required: ["task_id"],
+      },
+    },
+    {
+      name: "task_resume",
+      description: "Resume a task that is in interrupted state after a runner restart.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          task_id: { type: "string" },
+          text: { type: "string", description: "Optional instruction before resuming." },
+        },
+        required: ["task_id"],
+      },
+    },
+    {
+      name: "pending_approvals",
+      description: "List tasks waiting for a human decision or clarification.",
+      inputSchema: { type: "object", properties: {} },
+    },
+    {
+      name: "task_approve",
+      description: "Approve or reject a pending task approval by task or question id.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          task_id: { type: "string" },
+          question_id: { type: "string" },
+          decision: { type: "string", enum: ["approve", "deny"] },
+          text: { type: "string" },
+        },
+      },
+    },
+    {
+      name: "task_respond",
+      description: "Answer a pending clarification with free-form text.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          task_id: { type: "string" },
+          question_id: { type: "string" },
+          text: { type: "string" },
+        },
+        required: ["text"],
       },
     },
     {
@@ -99,41 +188,119 @@ export async function runMcp(argv = []) {
     },
   ];
 
+  async function submitTask(input) {
+    return api("/v1/tasks", {
+      method: "POST",
+      body: JSON.stringify({
+        sessionId,
+        goal: input.goal,
+        rawRequest: input.raw_request || input.goal,
+        repo: input.repo,
+        repoPath: input.repo_path,
+        baseRef: input.base_ref,
+        constraints: input.constraints,
+        acceptance: input.acceptance,
+        gates: input.gates,
+      }),
+    });
+  }
+
+  function snapshot(task) {
+    return {
+      taskId: task.id,
+      state: task.state,
+      goal: task.goal,
+      summary: task.summary,
+      error: task.error,
+      workdir: task.workdir,
+      usage: task.usage || null,
+      question: task.question || null,
+    };
+  }
+
+  async function waitForTask(taskId, timeoutSec) {
+    const seconds = Math.min(55, Math.max(1, Number(timeoutSec) || 25));
+    const deadline = Date.now() + seconds * 1000;
+    for (;;) {
+      const task = await api(`/v1/tasks/${taskId}`);
+      const result = snapshot(task);
+      if (["waiting", "completed", "failed", "canceled", "interrupted"].includes(task.state)) {
+        return result;
+      }
+      if (Date.now() >= deadline) return { ...result, timedOut: true };
+      await sleep(400);
+    }
+  }
+
+  async function questionIdFor(input) {
+    if (input.question_id) return input.question_id;
+    if (!input.task_id) throw new Error("question_id or task_id required");
+    const task = await api(`/v1/tasks/${input.task_id}`);
+    if (task.question?.id) return task.question.id;
+    if (task.questionId) return task.questionId;
+    throw new Error(`task ${input.task_id} has no pending question`);
+  }
+
   async function callTool(name, input = {}) {
     switch (name) {
       case "delegate_task": {
-        const data = await api("/v1/tasks", {
-          method: "POST",
-          body: JSON.stringify({
-            sessionId,
-            goal: input.goal,
-            rawRequest: input.raw_request || input.goal,
-            repo: input.repo,
-            repoPath: input.repo_path,
-            baseRef: input.base_ref,
-            constraints: input.constraints,
-            acceptance: input.acceptance,
-            gates: input.gates,
-          }),
-        });
+        const data = await submitTask(input);
         return {
           taskId: data.taskId,
           target: data.target,
           state: data.state,
-          hint: "Returned immediately. The human can watch progress in `agent-bridge tui`.",
+          hint: "Now call task_wait. If it returns waiting, ask the user in this chat and call answer_question.",
         };
+      }
+      case "dispatch_task": {
+        const data = await submitTask(input);
+        const result = await waitForTask(data.taskId, input.timeout_sec);
+        return { ...result, target: data.target };
+      }
+      case "task_wait":
+        return waitForTask(input.task_id, input.timeout_sec);
+      case "task_result": {
+        const task = await api(`/v1/tasks/${input.task_id}`);
+        return snapshot(task);
+      }
+      case "task_resume": {
+        await api(`/v1/tasks/${input.task_id}/resume`, {
+          method: "POST",
+          body: JSON.stringify({ text: input.text, actor: config.actor || "mcp" }),
+        });
+        return { ok: true, taskId: input.task_id };
+      }
+      case "pending_approvals": {
+        const data = await api("/v1/inbox");
+        return data.questions;
+      }
+      case "task_approve": {
+        const questionId = await questionIdFor(input);
+        await api(`/v1/questions/${questionId}/answer`, {
+          method: "POST",
+          body: JSON.stringify({
+            decision: input.decision || "approve",
+            text: input.text,
+            actor: config.actor || "mcp",
+          }),
+        });
+        return { ok: true, questionId };
+      }
+      case "task_respond": {
+        const questionId = await questionIdFor(input);
+        await api(`/v1/questions/${questionId}/answer`, {
+          method: "POST",
+          body: JSON.stringify({
+            decision: "approve",
+            text: input.text,
+            actor: config.actor || "mcp",
+          }),
+        });
+        return { ok: true, questionId };
       }
       case "task_status": {
         const task = await api(`/v1/tasks/${input.task_id}`);
-        return {
-          taskId: task.id,
-          state: task.state,
-          goal: task.goal,
-          summary: task.summary,
-          error: task.error,
-          workdir: task.workdir,
-          questionId: task.questionId,
-        };
+        return snapshot(task);
       }
       case "list_inbox": {
         const data = await api("/v1/inbox");

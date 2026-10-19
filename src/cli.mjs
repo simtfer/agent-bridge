@@ -274,12 +274,6 @@ export async function cli(command, argv) {
       return;
     }
 
-    case "tui": {
-      const { runTui } = await import("./tui.mjs");
-      await runTui(config, { once: Boolean(args.once) });
-      return;
-    }
-
     default:
       console.log(`agent-bridge <command>
 
@@ -301,7 +295,6 @@ commands:
   steer   <taskId> <text>
   resume  <taskId> [text]                  resume an interrupted run
   cancel  <taskId>
-  tui                                      open the terminal inbox
 `);
   }
 }
