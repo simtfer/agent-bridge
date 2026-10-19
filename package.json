@@ -1,0 +1,27 @@
+{
+  "name": "agent-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Cross-machine, session-bound task delegation between coding-agent harnesses on Windows.",
+  "bin": {
+    "agent-bridge": "./bin/agent-bridge.mjs"
+  },
+  "scripts": {
+    "gateway": "node bin/agent-bridge.mjs gateway --config config/gateway.json",
+    "runner": "node bin/agent-bridge.mjs runner --config config/runner.json",
+    "tui": "node bin/agent-bridge.mjs tui --config config/client.json",
+    "build:jobrun": "pwsh -NoProfile -File scripts/build-jobrun.ps1",
+    "test": "node test/smoke.mjs",
+    "test:concurrency": "node test/concurrency.mjs",
+    "test:timeout": "node test/timeout.mjs",
+    "test:recovery": "node test/recovery.mjs && node test/recovery-process.mjs && node test/recovery-gateway.mjs",
+    "test:serve": "node test/live-serve.mjs && node test/live-serve-gate.mjs",
+    "test:pi-mock": "node test/live-pi-mock.mjs",
+    "test:pi-scenario": "node test/scenario-claude-pi.mjs",
+    "test:live": "node test/live-opencode.mjs && node test/live-gate.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

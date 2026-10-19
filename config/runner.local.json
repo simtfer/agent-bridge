@@ -1,0 +1,19 @@
+{
+  "port": 8788,
+  "host": "127.0.0.1",
+  "token": "dev-runner-token",
+  "workRoot": "./data/work",
+  "stateRoot": "./data/state",
+  "maxConcurrent": 2,
+  "jobObject": true,
+  "jobMemoryMb": 4096,
+  "jobProcessLimit": 128,
+  "taskTimeoutSec": 0,
+  "defaultModel": "opencode/deepseek-v4.1-flash-free",
+  "repos": {},
+  "adapters": {
+    "echo": true,
+    "opencode": true,
+    "pi": true
+  }
+}

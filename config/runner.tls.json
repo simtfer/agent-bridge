@@ -1,0 +1,15 @@
+{
+  "port": 8790,
+  "host": "127.0.0.1",
+  "token": "dev-runner-token-tls",
+  "workRoot": "./data/tls-work",
+  "stateRoot": "./data/tls-state",
+  "maxConcurrent": 2,
+  "jobObject": true,
+  "defaultModel": "opencode/deepseek-v4.1-flash-free",
+  "repos": {},
+  "tls": {
+    "cert": "certs/runner.crt",
+    "key": "certs/runner.key"
+  }
+}

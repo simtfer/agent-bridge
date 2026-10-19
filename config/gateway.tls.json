@@ -1,0 +1,19 @@
+{
+  "port": 8791,
+  "host": "127.0.0.1",
+  "token": "dev-gateway-token-tls",
+  "dataDir": "./data/tls-gateway",
+  "runners": {
+    "local-tls": {
+      "url": "https://127.0.0.1:8790",
+      "token": "dev-runner-token-tls",
+      "tls": {
+        "ca": "certs/ca.crt"
+      }
+    }
+  },
+  "tls": {
+    "cert": "certs/gateway.crt",
+    "key": "certs/gateway.key"
+  }
+}

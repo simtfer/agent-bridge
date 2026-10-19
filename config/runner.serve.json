@@ -1,0 +1,13 @@
+{
+  "port": 8792,
+  "host": "127.0.0.1",
+  "token": "dev-runner-token-serve",
+  "workRoot": "./data/serve-work",
+  "stateRoot": "./data/serve-state",
+  "maxConcurrent": 2,
+  "jobObject": true,
+  "opencodeMode": "serve",
+  "opencodeServerPort": 4097,
+  "defaultModel": "opencode/deepseek-v4.1-flash-free",
+  "repos": {}
+}

@@ -1,0 +1,16 @@
+{
+  "port": 8788,
+  "host": "0.0.0.0",
+  "token": "CHANGE-ME-RUNNER-TOKEN",
+  "workRoot": "D:\\agent-work",
+  "stateRoot": "D:\\agent-state",
+  "maxConcurrent": 2,
+  "jobObject": true,
+  "jobMemoryMb": 4096,
+  "jobProcessLimit": 128,
+  "taskTimeoutSec": 0,
+  "defaultModel": "anthropic/claude-sonnet-4-5",
+  "repos": {
+    "app": "D:\\repos\\app"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "gateway": {
+    "url": "https://127.0.0.1:8791",
+    "token": "dev-gateway-token-tls",
+    "tls": {
+      "ca": "certs/ca.crt"
+    }
+  },
+  "actor": "alice",
+  "refreshMs": 800
+}

@@ -1,0 +1,12 @@
+{
+  "port": 8787,
+  "host": "127.0.0.1",
+  "token": "dev-gateway-token",
+  "dataDir": "./data",
+  "runners": {
+    "local": {
+      "url": "http://127.0.0.1:8788",
+      "token": "dev-runner-token"
+    }
+  }
+}

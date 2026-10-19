@@ -1,0 +1,16 @@
+{
+  "port": 8787,
+  "host": "127.0.0.1",
+  "token": "CHANGE-ME",
+  "dataDir": "D:\\agent-bridge-data",
+  "runners": {
+    "b1": {
+      "url": "http://192.168.1.20:8788",
+      "token": "CHANGE-ME-LONG-RANDOM"
+    },
+    "b2": {
+      "url": "http://192.168.1.21:8788",
+      "token": "CHANGE-ME-LONG-RANDOM"
+    }
+  }
+}

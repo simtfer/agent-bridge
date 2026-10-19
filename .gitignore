@@ -1,0 +1,6 @@
+data/
+.tmp/
+certs/
+node_modules/
+*.log
+*.tmp

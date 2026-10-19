@@ -1,0 +1,23 @@
+{
+  "port": 8788,
+  "host": "0.0.0.0",
+  "token": "CHANGE-ME-LONG-RANDOM",
+  "workRoot": "D:\\agent-work",
+  "stateRoot": "D:\\agent-state",
+  "maxConcurrent": 2,
+  "jobObject": true,
+  "jobMemoryMb": 4096,
+  "jobProcessLimit": 128,
+  "taskTimeoutSec": 0,
+  "opencodeMode": "serve",
+  "opencodeServerPort": 4096,
+  "defaultModel": "opencode/deepseek-v4.1-flash-free",
+  "repos": {
+    "app": "D:\\repos\\app"
+  },
+  "adapters": {
+    "echo": true,
+    "opencode": true,
+    "pi": true
+  }
+}
